@@ -2,3 +2,4 @@
 *.cache
 *.pyc
 conf.json
+.DS_Store
