@@ -4,6 +4,7 @@ import pytest
 from mock import patch, Mock
 
 from marketorestpython.client import MarketoClient
+from marketorestpython.helper.exceptions import MarketoException
 
 
 @pytest.fixture
@@ -99,3 +100,47 @@ def test_authenticate(m_client_api_call, client):
     with pytest.raises(Exception) as excinfo:
         client.authenticate()
         assert excinfo.value == 'invalid secret'
+
+
+@patch('marketorestpython.client.MarketoClient.authenticate')
+@patch('marketorestpython.client.MarketoClient._api_call')
+def test_endpoint_responses(m_client_api_call, m_client_authenticate, client):
+    m_client_authenticate.return_value = True
+
+    m_client_api_call.return_value = None
+    with pytest.raises(Exception) as excinfo:
+        client.get_program_by_id(2600)
+        assert excinfo == "Empty Response"
+
+    m_client_api_call.return_value = {
+        "success": False,
+        "errors": [
+            {
+                "message": "Something went wrong.",
+                "code": 1
+            }
+        ]
+    }
+    with pytest.raises(MarketoException) as excinfo:
+        client.get_program_by_id(2600)
+        assert excinfo == "Marketo API Error Code {}: {}".format(
+            1, 
+            "Something went wrong."
+        )
+
+    m_client_api_call.return_value = {
+        "success": True,
+        "errors": []
+    }
+    assert client.get_program_by_id(2600) == []
+
+    program_info = {
+        "id": 2600,
+        "name": "Foo"
+    }
+    m_client_api_call.return_value = {
+        "success": True,
+        "errors": [],
+        "result": [program_info]
+    }
+    assert client.get_program_by_id(2600) == [program_info]
