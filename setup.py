@@ -1,6 +1,3 @@
-import os
-import sys
-
 try:
     from setuptools import setup
 except ImportError:
@@ -24,7 +21,7 @@ Originally developed by asamat with contributions from sandipsinha and osamakhn
 
 setup(
     name='marketorestpython',
-    version= '0.5.25',
+    version= '0.5.25+bevy',
     url='https://github.com/jepcastelein/marketo-rest-python',
     author='Jep Castelein',
     author_email='jep@castelein.net',
@@ -35,7 +32,7 @@ setup(
         'requests',
         'pytz'
     ],
-    keywords = ['Marketo', 'REST API', 'Wrapper', 'Client'],
+    keywords=['Marketo', 'REST API', 'Wrapper', 'Client'],
     description='Python Client for the Marketo REST API',
     long_description=long_description
 )
