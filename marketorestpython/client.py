@@ -468,7 +468,7 @@ class MarketoClient:
         return result['success']  # there is no 'result' node returned in this call
 
     def push_lead(self, leads, lookupField, programName, programStatus=None, partitionName=None, source=None,
-                  reason=None):
+                  reason=None, acquiredBy=None):
         self.authenticate()
         if leads is None: raise ValueError("Invalid argument: required argument 'leads' is None.")
         if lookupField is None: raise ValueError("Invalid argument: required argument 'lookupField' is None.")
@@ -489,6 +489,8 @@ class MarketoClient:
             data['source'] = source
         if reason is not None:
             data['reason'] = reason
+        if acquiredBy is not None:
+            data['acquiredBy'] = acquiredBy
         result = self._api_call('post', self.host + "/rest/v1/leads/push.json", args, data)
         if result is None: raise Exception("Empty Response")
         if not result['success'] : raise MarketoException(result['errors'][0])
