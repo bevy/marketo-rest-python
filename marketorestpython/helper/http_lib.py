@@ -39,6 +39,9 @@ class HttpLib:
         global max_retry_time
         return max_retry_time
 
+    def __init__(self, requests_timeout=None):
+        self.requests_timeout = requests_timeout
+
     def _rate_limited(maxPerSecond):
         minInterval = 1.0 / float(maxPerSecond)
         def decorate(func):
