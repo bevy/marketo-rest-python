@@ -34,7 +34,7 @@ class MarketoClient:
         self.requests_timeout = requests_timeout
 
     def _api_call(self, method, endpoint, *args, **kwargs):
-        request = HttpLib()
+        request = HttpLib(requests_timeout=self.requests_timeout)
         result = getattr(request, method)(endpoint, *args, **kwargs)
         self.API_CALLS_MADE += 1
         if self.API_LIMIT and self.API_CALLS_MADE >= self.API_LIMIT:
