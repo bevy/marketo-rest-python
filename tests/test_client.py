@@ -18,9 +18,14 @@ def test_marketo_client(client):
     assert client.client_secret == 'supersecret'
     assert client.API_CALLS_MADE == 0
     assert client.API_LIMIT is None
+    assert client.requests_timeout is None
 
-    client = MarketoClient('123-FDY-456', 'randomclientid', 'supersecret', 20)
+    client = MarketoClient('123-FDY-456', 'randomclientid', 'supersecret', 20, requests_timeout=10)
     assert client.API_LIMIT == 20
+    assert client.requests_timeout == 10
+
+    with pytest.raises(AssertionError):
+        MarketoClient('123-FDY-456', 'randomclientid', 'supersecret', 20, requests_timeout="not an int")
 
 
 @patch('marketorestpython.client.HttpLib')
