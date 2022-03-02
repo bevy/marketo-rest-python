@@ -19,7 +19,7 @@ class MarketoClient:
     scope = None
     last_request_id = None # intended to save last request id, but not used right now
 
-    def __init__(self, munchkin_id, client_id, client_secret, api_limit=None):
+    def __init__(self, munchkin_id, client_id, client_secret, api_limit=None, requests_timeout=None):
         assert(munchkin_id is not None)
         assert(client_id is not None)
         assert(client_secret is not None)
@@ -29,6 +29,9 @@ class MarketoClient:
         self.client_secret = client_secret
         self.API_CALLS_MADE = 0
         self.API_LIMIT = api_limit
+        if requests_timeout is not None:
+            assert isinstance(requests_timeout, int), "requests_timeout must be an integer"
+        self.requests_timeout = requests_timeout
 
     def _api_call(self, method, endpoint, *args, **kwargs):
         request = HttpLib()

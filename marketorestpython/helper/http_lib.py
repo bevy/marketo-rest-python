@@ -7,6 +7,9 @@ class HttpLib:
     sleep_duration = 3
     num_calls_per_second = 5  # can run five times per second at most (at 100/20 rate limit)
 
+    def __init__(self, requests_timeout=None):
+        self.requests_timeout = requests_timeout
+
     def _rate_limited(maxPerSecond):
         minInterval = 1.0 / float(maxPerSecond)
         def decorate(func):
@@ -30,7 +33,7 @@ class HttpLib:
                 return None
             try:
                 headers = {'Accept-Encoding': 'gzip'}
-                r = requests.get(endpoint, params=args, headers=headers)
+                r = requests.get(endpoint, params=args, headers=headers, timeout=self.requests_timeout)
                 if mode is 'nojson':
                     return r
                 else:
@@ -72,14 +75,14 @@ class HttpLib:
                 return None
             try:
                 if mode is 'nojsondumps':
-                    r = requests.post(endpoint, params=args, data=data)
+                    r = requests.post(endpoint, params=args, data=data, timeout=self.requests_timeout)
                 elif files is None:
                     headers = {'Content-type': 'application/json'}
-                    r = requests.post(endpoint, params=args, json=data, headers=headers)
+                    r = requests.post(endpoint, params=args, json=data, headers=headers, timeout=self.requests_timeout)
                 elif files is not None:
                     mimetype = mimetypes.guess_type(files)[0]
                     file = {filename: (files, open(files, 'rb'), mimetype)}
-                    r = requests.post(endpoint, params=args, json=data, files=file)
+                    r = requests.post(endpoint, params=args, json=data, files=file, timeout=self.requests_timeout)
                 r_json = r.json()
                 # if we still hit the rate limiter, do not return anything so the call will be retried
                 if 'success' in r_json:  # this is for all normal API calls (but not the access token call)
@@ -120,7 +123,7 @@ class HttpLib:
                 return None
             try:
                 headers = {'Content-type': 'application/json'}
-                r = requests.delete(endpoint, params=args, json=data, headers=headers)
+                r = requests.delete(endpoint, params=args, json=data, headers=headers, timeout=self.requests_timeout)
                 return r.json()
             except Exception as e:
                 print("HTTP Delete Exception! Retrying....."+ str(e))
