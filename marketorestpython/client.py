@@ -30,7 +30,19 @@ class MarketoClient:
         self.API_CALLS_MADE = 0
         self.API_LIMIT = api_limit
         if requests_timeout is not None:
-            assert isinstance(requests_timeout, int), "requests_timeout must be an integer"
+            error_message = "requests_timeout must be a postive float or int, or a two-element tuple of positive floats or ints"
+            if isinstance(requests_timeout, int) or isinstance(requests_timeout, float):
+                assert requests_timeout > 0, error_message
+                self.requests_timeout = requests_timeout
+            elif isinstance(requests_timeout, tuple):
+                assert (
+                        len(requests_timeout) == 2 and
+                        all(isinstance(x, int) or isinstance(x, float) for x in requests_timeout) and
+                        all(x > 0 for x in requests_timeout)
+                ), error_message
+                self.requests_timeout = requests_timeout
+            else:
+                raise AssertionError(error_message)
         self.requests_timeout = requests_timeout
 
     def _api_call(self, method, endpoint, *args, **kwargs):
