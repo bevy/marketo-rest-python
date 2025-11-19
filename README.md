@@ -1,7 +1,6 @@
 Marketo REST Python
 ===================
-
-Python Client that covers the complete Marketo REST API. It handles authentication, error handling and rate limiting
+Python Client that covers most of the Marketo REST API. It handles authentication, error handling and rate limiting
 to the standard limit of 100 calls in 20 seconds (defined in http_lib module). This is a fork of the project started by 
 Arunim Samat at https://github.com/asamat/python_marketo, which had stalled. <br />
 
@@ -10,16 +9,26 @@ Full Marketo REST API documentation - http://developers.marketo.com/documentatio
 Installation
 ============
 
-pip install marketorestpython
+`pip install marketorestpython`
 
 Unit tests
 ==========
+[![Build Status](https://travis-ci.org/jepcastelein/marketo-rest-python.svg?branch=master)](https://travis-ci.org/jepcastelein/marketo-rest-python)
 
+See tests in `test_script.py` and see `.travis.yml` for automated
+testing setup. Travis does not test pull requests. 
+
+To test locally, create a local file `conf.json` and enter your Marketo credentials and 
+type `pytest` on the command line: 
+```json
+{
+  "munchkin_id": "",
+  "client_id": "",
+  "client_secret": ""
+}
 ```
-python setup.py develop
-pip install -r requirements-tests.txt
-py.test tests/
-```
+This runs `test_script.py`. It will automatically create and delete Person records and Assets
+in Marketo (self-contained). It is recommended to only run it on a sandbox instance. 
 
 Usage
 =====
@@ -28,9 +37,31 @@ from marketorestpython.client import MarketoClient
 munchkin_id = "" # fill in Munchkin ID, typical format 000-AAA-000
 client_id = "" # enter Client ID from Admin > LaunchPoint > View Details
 client_secret= "" # enter Client ID and Secret from Admin > LaunchPoint > View Details
-mc = MarketoClient(munchkin_id, client_id, client_secret)
+api_limit=None
+max_retry_time=None
+requests_timeout=(3.0, 10.0)
+mc = MarketoClient(munchkin_id, client_id, client_secret, api_limit, max_retry_time, requests_timeout=requests_timeout)
+
+# 'api_limit' and 'max_retry_time' are optional;
+# 'api_limit' limits the number of Marketo API calls made by this instance of MarketoClient
+# 'max_retry_time' defaults to 300 and sets the time in seconds to retry failed API calls that 
+#   are retryable; if it still fails after the configured time period, it will throw a 
+#   MarketoException
+# 'requests_timeout' can be an int, float, or tuple of ints or floats to pass as a timeout 
+#   argument to calls made by the requests library. Defaults to None, i.e., no timeout.
+#   See requests docs for more info: http://docs.python-requests.org/en/master/user/advanced/
 ```
 Then use mc.execute(method='') to call the various methods (see documentation below) 
+
+For very specific use cases where you only have the access_token, you can also pass that in directly; you are then
+responsible for requesting the initial access_token and renewing it when it expires. 
+```python
+from marketorestpython.client import MarketoClient
+munchkin_id = "" # fill in Munchkin ID, typical format 000-AAA-000
+access_token = "" # enter access_token
+mc = MarketoClient(munchkin_id, access_token=access_token)
+```
+
 
 Lead, List, Activity and Campaign Objects
 =========================================
@@ -72,18 +103,20 @@ Get Multiple Leads by List Id Yield (Generator)
 API Ref: http://developers.marketo.com/documentation/rest/get-multiple-leads-by-list-id/
 ```python
 for leads in mc.execute(method='get_multiple_leads_by_list_id_yield', listId='676', 
-                fields=['email','firstName','lastName'], batchSize=None):
+                fields=['email','firstName','lastName'], batchSize=None, return_full_result=False):
     print(len(leads))
 
 # OR: 
 
 leads = mc.execute(method='get_multiple_leads_by_list_id_yield', listId='676', 
-                fields=['email','firstName','lastName'], batchSize=None)
+                fields=['email','firstName','lastName'], batchSize=None, return_full_result=False)
 lead_chunk = next(leads) # keep calling next until no more Leads
 
 # this is a generator, so it will return chunks of Leads rather that all Leads on the 
 #   List at once; therefore, it's useful for Lists with large numbers of Leads 
 # fields and batchSize are optional; batchSize defaults to 300, which is the max
+# set return_full_result to True to get the nextPageToken and requestId returned; actual 
+#  result will be in the 'result' key
 # static lists only (does not work with smart lists)
 ```
 
@@ -156,6 +189,30 @@ lead = mc.execute(method='push_lead', leads=leads, lookupField='email', programN
 # to associate mkt_tok, put it in a field called 'mktToken' (see http://developers.marketo.com/rest-api/lead-database/leads/#push_lead_to_marketo)
 ```
 
+Submit Form
+------------
+API docs: https://developers.marketo.com/rest-api/lead-database/leads/#submit_form
+```python
+input = {
+   "leadFormFields":{
+      "firstName":"Marge",
+      "lastName":"Simpson",
+      "email":"marge.simpson@fox.com",
+      "pMCFField":"PMCF value"
+   },
+   "visitorData":{
+      "pageURL":"https://na-sjst.marketo.com/lp/063-GJP-217/UnsubscribePage.html",
+      "queryString":"Unsubscribed=yes",
+      "leadClientIpAddress":"192.150.22.5",
+      "userAgentString":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36"
+   },
+   "cookie":"id:063-GJP-217&token:_mch-marketo.com-1594662481190-60776"
+}
+response = mc.execute(method='submit_form', formId=1029, input=input)
+
+# please note that `input` doesn't need to contain a list, the method does that. 
+```
+
 Merge Lead
 ----------
 API Ref: http://developers.marketo.com/documentation/rest/merge-lead/
@@ -166,27 +223,18 @@ lead = mc.execute(method='merge_lead', id=3482183, leadIds=[3482182], mergeInCRM
 # returns True if successful
 ```
 
+Get Smart Campaigns by Lead ID
+------------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Leads/getSmartCampaignMembershipUsingGET
+```python
+results = mc.execute(method='get_smart_campaigns_by_lead_id', lead_id=39881)
+```
+
 Get Lead Partitions
 -------------------
 API Ref: http://developers.marketo.com/documentation/rest/get-lead-partitions/
 ```python
 lead = mc.execute(method='get_lead_partitions')
-```
-
-Get List by Id
---------------
-API Ref: http://developers.marketo.com/documentation/rest/get-list-by-id/
-```python
-lead = mc.execute(method='get_list_by_id', id=724)
-```
-
-Get Multiple Lists
-------------------
-API Ref: http://developers.marketo.com/documentation/rest/get-multiple-lists/
-```python
-lead = mc.execute(method='get_multiple_lists', id=[724,725], name=None, programName=None, workspaceName=None, batchSize=300)
-
-# all parameters are optional; no parameters returns all lists
 ```
 
 Add Leads to List
@@ -212,50 +260,6 @@ Member of List
 API Ref: http://developers.marketo.com/documentation/rest/member-of-list/
 ```python
 lead = mc.execute(method='member_of_list', listId=728, id=[3482093,3482095,3482096])
-```
-
-Get Campaign by Id
-------------------
-API Ref: http://developers.marketo.com/documentation/rest/get-campaign-by-id/
-```python
-lead = mc.execute(method='get_campaign_by_id', id=1170)
-```
-
-Get Multiple Campaigns
-----------------------
-API Ref: http://developers.marketo.com/documentation/rest/get-multiple-campaigns/
-```python
-lead = mc.execute(method='get_multiple_campaigns', id=[1170,1262], name=None, programName=None, workspaceName=None, batchSize=None)
-
-# all parameters are optional
-```
-
-Schedule Campaign
------------------
-API Ref: http://developers.marketo.com/documentation/rest/schedule-campaign/
-```python
-# date format: 2015-11-08T15:43:12-08:00
-from datetime import datetime, timezone, timedelta
-now = datetime.now(timezone.utc)
-now_no_ms = now.replace(microsecond=0)
-now_plus_7 = now_no_ms + timedelta(minutes = 7)
-time_as_txt = now_plus_7.astimezone().isoformat()
-print(time_as_txt)
-lead = mc.execute(method='schedule_campaign', id=1878, runAt=time_as_txt, tokens={'my.Campaign Name': 'new token value'}, cloneToProgramName=None)
-
-# runAt is optional; default is 5 minutes from now; if specified, it needs to be at least 5 minutes from now
-# tokens and cloneToProgramName are optional
-# returns True
-```
-
-Request Campaign
-----------------
-API Ref: http://developers.marketo.com/documentation/rest/request-campaign/
-```python
-lead = mc.execute(method='request_campaign', id=1880, leads=[46,38], tokens={'my.increment': '+2'})
-
-# tokens is optional
-# returns True
 ```
 
 Import Lead
@@ -311,14 +315,28 @@ Describe
 --------
 API Ref: http://developers.marketo.com/documentation/rest/describe/
 ```python
-lead = mc.execute(method='describe')
+lead_fields = mc.execute(method='describe')
+```
+
+Describe2
+--------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Leads/describeUsingGET_6
+```python
+lead_fields = mc.execute(method='describe2')
+```
+
+Describe Program Member
+-----------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Program_Members/describeProgramMemberUsingGET2
+```python
+program_member_fields = mc.execute(method='describe_program_member')
 ```
 
 Get Activity Types
 ------------------
 API Ref: http://developers.marketo.com/documentation/rest/get-activity-types/
 ```python
-mc.execute(method = 'get_activity_types')
+activity_types = mc.execute(method = 'get_activity_types')
 ```
 
 Get Paging Token
@@ -337,7 +355,7 @@ Get Lead Activities
 API Ref: http://developers.marketo.com/documentation/rest/get-lead-activities/
 ```python
 mc.execute(method='get_lead_activities', activityTypeIds=['23','22'], nextPageToken=None, 
-    sinceDatetime='2015-10-06', untilDatetime='2016-04-30' 
+    sinceDatetime='2015-10-06', untilDatetime='2016-04-30', 
     batchSize=None, listId=None, leadIds=[1,2])
 
 # sinceDatetime format: 2015-10-06T13:22:17-08:00 or 2015-10-06T13:22-0700 or 2015-10-06
@@ -352,17 +370,22 @@ Get Lead Activities Yield (Generator)
 API Ref: http://developers.marketo.com/documentation/rest/get-lead-activities/
 ```python
 for activities in mc.execute(method='get_lead_activities_yield', activityTypeIds=['23','22'], nextPageToken=None, 
-                             sinceDatetime='2015-10-06', untilDatetime='2016-04-30' 
-                             batchSize=None, listId=None, leadIds=[1,2]):
+                             sinceDatetime='2015-10-06', untilDatetime='2016-04-30', 
+                             batchSize=None, listId=None, leadIds=[1,2], return_full_result=False,
+                             max_empty_more_results=None):
     print(len(activities))
 
 # sinceDatetime format: 2015-10-06T13:22:17-08:00 or 2015-10-06T13:22-0700 or 2015-10-06
 # either nextPageToken or sinceDatetime need to be specified
 # untilDatetime, batchSize, listId and leadIds are optional; batchsize defaults to 300 (max)
+# set return_full_result to get the nextPageToken and requestId returned; actual 
+#  result will be in the 'result' key
+# sometimes Marketo responds with 0 results but indicates there may be more
+#  results in the next call; max_empty_more_results defines how many times "0 results"
+#  is acceptable until it gives up
 # this is a generator, so it will return chunks of Leads rather that all Activities 
 #   at once; therefore, it's useful for retrieving large numbers of Activities
 ```
-
 
 Get Lead Changes
 ----------------
@@ -382,13 +405,18 @@ Get Lead Changes Yield (Generator)
 API Ref: http://developers.marketo.com/documentation/rest/get-lead-changes/
 ```python
 for leads in mc.execute(method='get_lead_changes_yield', fields=['firstName','lastName'], nextPageToken=None,
-                  sinceDatetime='2015-09-01', untilDatetime='2017-01-01', batchSize=None, listId=None):
+                  sinceDatetime='2015-09-01', untilDatetime='2017-01-01', batchSize=None, listId=None, 
+                  leadIds=[1,2], return_full_result=False, max_empty_more_results=None):
     print(len(leads))
 
 # sinceDatetime format: 2015-10-06T13:22:17-08:00 or 2015-10-06T13:22-0700 or 2015-10-06
 # either nextPageToken or sinceDatetime need to be specified
-# untilDatetime, batchSize and listId are optional; batchsize defaults to 300 (max)
-# this will potentially return a lot of records: the function loops until it has all activities, then returns them
+# untilDatetime, batchSize, listId and leadIds are optional; batchsize defaults to 300 (max)
+# set return_full_result to get the nextPageToken and requestId returned; actual 
+#  result will be in the 'result' key
+# sometimes Marketo responds with 0 results but indicates there may be more
+#  results in the next call; max_empty_more_results defines how many times "0 results"
+#  is acceptable until it gives up
 ```
 
 Add Custom Activities
@@ -554,6 +582,15 @@ lead = mc.execute(method='browse_folders', root=3, maxDepth=5, maxReturn=200, wo
 # will throw KeyError when no folder found
 ```
 
+Browse Folders (Yield)
+--------------
+API Ref: http://developers.marketo.com/documentation/asset-api/browse-folders
+```python
+for folders in mc.execute(method='browse_folders_yield', root=3, maxDepth=5, maxReturn=200, workSpace='Default', 
+                          offset=0, return_full_result=False): 
+    print(folders)
+```
+
 Tokens
 =======
 
@@ -579,6 +616,272 @@ API Ref: http://developers.marketo.com/documentation/asset-api/delete-tokens-by-
 ```python
 tokens = mc.execute(method='delete_tokens', id="28", folderType="Folder", name="test", type="text")
 ```
+
+Static Lists
+=====
+
+Get Static List by Id
+--------------
+API Ref: http://developers.marketo.com/rest-api/assets/static-lists/#by_id
+```python
+lead = mc.execute(method='get_list_by_id', id=724)
+```
+
+Get Static List by Name
+--------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Static_Lists/getStaticListByNameUsingGET
+```python
+lead = mc.execute(method='get_list_by_name', name='My Test List')
+```
+
+Get Multiple Lists (OLD)
+------------------
+API Ref: http://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Static_Lists/getListsUsingGET
+```python
+lead = mc.execute(method='get_multiple_lists', id=[724,725], name=None, programName=None, workspaceName=None, batchSize=300)
+
+# NOTE: this call has different options compared to 'browse_lists' below
+# all parameters are optional; no parameters returns all lists
+```
+
+Get Static Lists
+------------------
+API Ref: http://developers.marketo.com/rest-api/assets/static-lists/#browse
+```python
+lead = mc.execute(method='browse_lists', folderId=8, folderType='Folder', offset=None, 
+                  maxReturn=None, earliestUpdatedAt=None, latestUpdatedAt=None)
+
+# NOTE: this call has different options compared to 'get_multiple_lists' above
+# all parameters are optional; no parameters returns all lists
+```
+
+Get Static Lists (Yield)
+------------------
+API Ref: http://developers.marketo.com/rest-api/assets/static-lists/#browse
+```python
+for lists in mc.execute(method='browse_lists_yield', folderId=8, folderType='Folder', offset=0, 
+               maxReturn=20, earliestUpdatedAt=None, latestUpdatedAt=None, return_full_result=False): 
+    print(lists)
+
+# all parameters are optional; no parameters returns all lists
+```
+
+Create Static List
+-----------
+API Ref: http://developers.marketo.com/rest-api/assets/static-lists/#create_and_update
+```python
+lead = mc.execute(method='create_list', folderId=8, folderType='Folder', name='Test List', description='Optional')
+
+# 'folderType' is either 'Folder' or 'Program'
+# description is optional
+```
+
+Update Static List
+----------
+API Ref: http://developers.marketo.com/rest-api/assets/static-lists/#create_and_update
+```python
+lead = mc.execute(method='update_list', id=123, name='new name', description='new description')
+
+# 'id' and either 'name' or 'description' need to be specified (or all of them)
+```
+
+Delete List
+-----------
+API Ref: http://developers.marketo.com/rest-api/assets/static-lists/#delete
+```python
+lead = mc.execute(method='delete_list', id=123)
+```
+
+Smart Lists
+=====
+
+Get Smart List by Id
+-------------------
+API ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Lists/getSmartListByIdUsingGET
+```python
+smart_list = mc.execute(method='get_smart_list_by_id', id=123, return_full_result=False)
+# set return_full_result to get the nextPageToken and requestId returned; actual 
+#  result will be in the 'result' key
+```
+
+Get Smart List by Name
+-------------------
+API ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Lists/getSmartListByNameUsingGET
+```python
+smart_list = mc.execute(method='get_smart_list_by_name', name='Abc', return_full_result=False)
+# set return_full_result to get the nextPageToken and requestId returned; actual 
+#  result will be in the 'result' key
+```
+
+Get Smart Lists
+-------------------
+API ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Lists/getSmartListsUsingGET
+```python
+for smart_lists in mc.execute(method='get_smart_lists', folderId=123, folderType='Folder', offset=None, 
+                              maxReturn=None, earliestUpdatedAt=None, latestUpdatedAt=None, return_full_result=False):
+    print(smart_lists)
+# all parameters are optional; no parameters returns all lists
+# maxReturn defaults to 200
+# offset defaults to 0; it is automatically incremented, so it's only for when you want to start at a specific offset
+# set return_full_result to get the nextPageToken and requestId returned; actual 
+#  result will be in the 'result' key
+```
+
+Delete Smart List
+-------------------
+API ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Lists/deleteSmartListByIdUsingPOST 
+```python
+smart_list = mc.execute(method='delete_smart_list', id=123)
+# set return_full_result to get the nextPageToken and requestId returned; actual 
+#  result will be in the 'result' key
+```
+
+Clone Smart List
+-------------------
+API ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Lists/cloneSmartListUsingPOST 
+```python
+smart_list = mc.execute(method='clone_smart_list', id=123, name='cloned smart list', folderId=123, folderType='Folder', 
+                        return_full_result=False, description=None)
+# set return_full_result to get the nextPageToken and requestId returned; actual 
+#  result will be in the 'result' key
+# description is optional
+```
+
+Smart Campaigns
+================
+
+
+Get Smart Campaign by Id
+-----------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/getSmartCampaignByIdUsingGET
+```python
+campaign = mc.execute(method='get_smart_campaign_by_id', id=1170)
+```
+
+Get Smart Campaign by Name
+-----------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/getSmartCampaignByNameUsingGET
+```python
+campaign = mc.execute(method='get_smart_campaign_by_name', name='my smart campaign name')
+```
+
+Get Campaign by Id - SUPERCEDED
+------------------
+Use "Get Smart Campaign by Id" instead. 
+
+API Ref: http://developers.marketo.com/documentation/rest/get-campaign-by-id/
+```python
+campaign = mc.execute(method='get_campaign_by_id', id=1170)
+```
+
+Get Smart Campaigns (Generator)
+-------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/getAllSmartCampaignsGET
+```python
+for campaigns in mc.execute(method='get_smart_campaigns', earliestUpdatedAt=None, latestUpdatedAt=None, 
+                            folderId=None, folderType=None,
+                            maxReturn=200, offset=0, 
+                            return_full_result=False): 
+    print(campaigns)
+
+# all parameters are optional; folderId and folderType need to be specified together; 
+# folderType can be "Folder" or "Program"
+# set return_full_result to True to get the full API response including requestId (not just the 'result' key)
+```
+
+Get Multiple Campaigns - SUPERCEDED
+----------------------
+Use "Get Smart Campaigns" instead. 
+
+API Ref: http://developers.marketo.com/documentation/rest/get-multiple-campaigns/
+```python
+lead = mc.execute(method='get_multiple_campaigns', id=[1170,1262], name=None, programName=None, workspaceName=None, batchSize=None)
+
+# all parameters are optional
+```
+
+Schedule Campaign
+-----------------
+API Ref: http://developers.marketo.com/documentation/rest/schedule-campaign/
+```python
+# date format: 2015-11-08T15:43:12-08:00
+from datetime import datetime, timezone, timedelta
+now = datetime.now(timezone.utc)
+now_no_ms = now.replace(microsecond=0)
+now_plus_7 = now_no_ms + timedelta(minutes = 7)
+time_as_txt = now_plus_7.astimezone().isoformat()
+print(time_as_txt)
+lead = mc.execute(method='schedule_campaign', id=1878, runAt=time_as_txt, tokens={'my.Campaign Name': 'new token value'}, cloneToProgramName=None)
+
+# runAt is optional; default is 5 minutes from now; if specified, it needs to be at least 5 minutes from now
+# tokens and cloneToProgramName are optional
+# returns True
+```
+
+Request Campaign
+----------------
+API Ref: http://developers.marketo.com/documentation/rest/request-campaign/
+```python
+lead = mc.execute(method='request_campaign', id=1880, leads=[46,38], tokens={'my.increment': '+2'})
+
+# tokens is optional
+# returns True
+```
+
+Activate Smart Campaign
+-----------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/activateSmartCampaignUsingPOST
+```python
+campaign = mc.execute(method='activate_smart_campaign', id=1880)
+```
+
+Deactivate Smart Campaign
+-----------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/deactivateSmartCampaignUsingPOST
+```python
+campaign = mc.execute(method='deactivate_smart_campaign', id=1880)
+```
+
+Create Smart Campaign
+---------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/createSmartCampaignUsingPOST
+```python
+campaign = mc.execute(method='create_smart_campaign', name='New Smart Campaign', folderId=898, folderType='Folder', 
+                      description=None)
+```
+
+Update Smart Campaign
+--------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/updateSmartCampaignUsingPOST
+```python
+campaign = mc.execute(method='update_smart_campaign', id=1880, name='New Name', description=None)
+```
+
+Clone Smart Campaign
+--------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/cloneSmartCampaignUsingPOST
+```python
+campaign = mc.execute(method='clone_smart_campaign', id=1880, name='New Name', folderId=898, folderType='Folder', 
+                      isExecutable=False, description=None)
+# isExecutable and description are optional
+```
+
+Delete Smart Campaign
+--------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/deleteSmartCampaignUsingPOST
+```python
+campaign = mc.execute(method='delete_smart_campaign', id=1880)
+```
+
+Get Smart List by Smart Campaign Id
+--------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Smart_Campaigns/getSmartListBySmartCampaignIdUsingGET 
+```python
+smart_list = mc.execute(method='get_smart_list_by_smart_campaign_id', id=123, includeRules=True, 
+                        return_full_result=False)
+# set includeRules to False if you do not want to get all triggers and filters of the smart list in the response 
+```
+
 
 Email Templates
 ===============
@@ -638,6 +941,17 @@ template = mc.execute(method='get_email_templates', status='draft', maxReturn=No
 # status and maxReturn are optional; status is 'draft' or 'approved'; default for maxReturn is 20 and max is 200
 # if you specify status, it will return an approved email with a draft for both status='draft' AND status='approved'
 ```
+
+Get Email Template Used By
+-------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Email_Templates/getEmailTemplateUsedByUsingGET
+
+```python
+template = mc.execute(method='get_email_template_used_by', id=41, maxReturn=None)
+
+# maxReturn is optional; default for maxReturn is 20 and max is 200
+```
+
 
 Get Email Template Content
 --------------------------
@@ -734,7 +1048,7 @@ Update Email
 ------------
 API Ref: http://developers.marketo.com/documentation/asset-api/update-email/
 ```python
-email = mc.execute(method='update_email', id=264, name="API Email 2", description='Hello New Description')
+email = mc.execute(method='update_email', id=264, name="API Email 2", description='Hello New Description', preHeader=None, operational=None, published=None, textOnly=None, webView=None)
 
 # name and description are optional, but - of course - you want to pass in at least 1 of them
 ```
@@ -839,6 +1153,44 @@ API Ref: http://developers.marketo.com/documentation/asset-api/send-sample-email
 email = mc.execute(method='send_sample_email', id=117, emailAddress='jep@example.com', textOnly=None, leadId=46)
 
 # textOnly and leadId are optional; textOnly will send the text version of the email in additional to the html version
+```
+
+Get Email Full Content
+-----------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Emails/getEmailFullContentUsingGET
+```python
+email = mc.execute(method='get_email_full_content', id=117, status=None, leadId=None, type=None)
+
+# status, leadId, and type are optional; status defaults to approved if asset is approved, draft if not.
+# leadId defines the lead to impersonate
+# default for type is HTML
+```
+
+Update Email Full Content
+-----------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Emails/createEmailFullContentUsingPOST
+```python
+email = mc.execute(method='update_email_full_content', id=117, content='email_content.html')
+
+# NOTE: Replaces the HTML of an Email that has had its relationship broken from its template; currently appears there is no way to set text only content
+# content should be an HTML document to update with (cannot include JavaScript or script tags)
+```
+
+Get Email Variables
+-------------------
+
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Emails/getEmailVariablesUsingGET
+```python
+variables = mc.execute(method='get_email_variables', id=1124)
+```
+
+Update Email Variable
+-------------------
+
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Emails/updateVariableUsingPOST
+```python
+variable = mc.execute(method='update_email_variable', id=1124, name='preheaderBackgroundColor', value='#81898c',
+           moduleId='preheader')
 ```
 
 Landing pages
@@ -1082,14 +1434,14 @@ Get Form Thank You Page
 ------------------
 API Ref: http://developers.marketo.com/documentation/marketo-rest-apis-web-page-objects/get-form-thank-you-page/
 ```python
-not implemented yet
+# not implemented yet
 ```
 
 Update Form Thank You Page
 --------------------------
 API Ref: http://developers.marketo.com/documentation/marketo-rest-apis-web-page-objects/update-form-thank-you-page/
 ```python
-not implemented yet
+# not implemented yet
 ```
 
 Update Form Metadata
@@ -1544,9 +1896,10 @@ Get Program by Tag Type
 API Ref: http://developers.marketo.com/documentation/programs/get-programs-by-tag-type/
 ```python
 try:
-    program = mc.execute(method='get_program_by_tag_type', tagType='Language', tagValue='English')
+    program = mc.execute(method='get_program_by_tag_type', tagType='Language', tagValue='English', maxReturn=20)
 except KeyError:
     program = False
+# maxReturn defaults to 20 and can be set to 200 max; this loops and gets all programs with the specific Tag & Value
 ```
 
 Update Program
@@ -1599,6 +1952,16 @@ API Ref: http://developers.marketo.com/documentation/programs/unapprove-program/
 program = mc.execute(method='approve_program', id=1208)
 ```
 
+Get Smart List by Program Id
+--------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/asset-endpoint-reference/#!/Programs/getSmartListByProgramIdUsingGET 
+```python
+smart_list = mc.execute(method='get_smart_list_by_program_id', id=123, includeRules=True, 
+                        return_full_result=False)
+# only works to get the built-in Smart List for Email Programs
+# set includeRules to False if you do not want to get all filters of the smart list in the response 
+```
+
 Get Channels
 ------------
 API Ref: http://developers.marketo.com/documentation/programs/get-channels/
@@ -1636,6 +1999,83 @@ try:
 except KeyError:
     tag = False
 ```
+
+Custom Object Types
+===================
+
+Create/Update Custom Object Type
+-----------------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/syncCustomObjectTypeUsingPOST
+```python
+    resultType = mc.execute(method='create_update_custom_object_type', apiName='transactions', displayName='Transactions', action='createOnly', description='Transactions custom object for the transactions')
+```
+
+Delete Custom Object Type
+-------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/deleteCustomObjectsUsingPOST
+```python
+    result = mc.execute(method='delete_custom_object_type', apiName='transactions')
+```
+
+Approve Custom Object Type
+--------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/approveCustomObjectTypeUsingPOST
+```python
+    result = mc.execute(method='approve_custom_object_type', apiName='transactions')
+```
+
+Discard Custom Object Type Draft
+--------------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/discardCustomObjectTypeUsingPOST
+```python
+    result = mc.execute(method='discard_custom_object_type', apiName='transactions')
+```
+
+Add Custom Object Type Fields
+-----------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/addCustomObjectTypeFieldsUsingPOST
+```python
+    fields = [{"displayName": "Email", "description": "Email", "name": "email", "dataType": "link", "relatedTo": {"name": "lead", "field": "email"}},
+    {"displayName": "Transaction ID", "description": "Transaction ID", "name": "txid", "dataType": "integer", "isDedupeField": True},
+    {"displayName": "Total", "description": "Transaction total", "name": "total", "dataType": "float"}]
+    result = mc.execute(method='add_field_custom_object_type', apiName='transactions',fields=fields)
+```
+
+List Custom Object Types
+------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/listCustomObjectTypesUsingGET
+```python
+    coTypes = mc.execute(method='get_list_of_custom_object_types')
+```
+
+Describe Custom Object Type
+---------------------------
+API Ref: https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/describeCustomObjectTypeUsingGET
+```python
+    description = mc.execute(method='describe_custom_object_type')
+```
+
+** Not currently implemented **
+
+Delete Custom Object Type Fields
+--------------------------------
+https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/deleteCustomObjectTypeFieldsUsingPOST
+
+Update Custom Object Type Field
+-------------------------------
+https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/updateCustomObjectTypeFieldUsingPOST
+
+Get Custom Object Type Field Data Types
+---------------------------------------
+https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/getCustomObjectTypeFieldDataTypesUsingGET
+
+Get Custom Object Linkable Objects
+----------------------------------
+https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/getCustomObjectTypeLinkableObjectsUsingGET
+
+Get Custom Object Dependent Assets
+----------------------------------
+https://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Custom_Objects/getCustomObjectTypeDependentAssetsUsingGET
 
 
 Custom Objects
@@ -1874,6 +2314,135 @@ result = mc.execute(method='get_sales_persons', filterType='externalSalesPersonI
 # fields and batchSize are optional
 # filterType can be: externalSalesPersonId, id, email
 ```
+
+Bulk Export Leads/Activities/Custom Objects/Program Members
+==============
+
+> Replace 'activities' with 'leads', 'custom_objects' or 'program_members' in below to get the equivalent for leads,
+> custom objects and program members export. For Custom Objects, the `object_name` attribute is always required.  
+
+List Bulk Export Activities Jobs
+----------------
+API Ref: http://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Bulk_Export_Activities/getExportActivitiesUsingGET
+```python
+export_jobs = mc.execute(method='get_activities_export_jobs_list')
+```
+
+List Bulk Export Custom Objects Jobs
+----------------
+```python
+export_jobs = mc.execute(method='get_activities_export_jobs_list', object_name='pet_c')
+
+# `object_name` is required; this is the same for all Custom Object bulk export calls
+```
+
+Create Bulk Export Activities Job
+----------------
+API Ref: http://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Bulk_Export_Activities/createExportActivitiesUsingPOST
+```python
+new_export_job_details = mc.execute(method='create_activities_export_job', fields=['string', 'string'], filters={'createdAt': {'endAt': '2017-11-02', 'startAt': '2017-11-01'}})
+```
+
+Create Bulk Export Custom Object Job
+----------------
+```python
+new_export_job_details = mc.execute(method='create_custom_objects_export_job', object_name='pet_c', fields=['string', 'string'], filters={'staticListId': 1025})
+
+# `object_name`, `fields` and `filters` are all required
+```
+
+Cancel Bulk Export Activities Job
+----------------
+API Ref: http://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Bulk_Export_Activities/cancelExportActivitiesUsingPOST
+```python
+new_export_job_details = mc.execute(method='cancel_activities_export_job', job_id='284742ec-1e5a-46f2-b164-498a41fcaaf6')
+```
+
+Enqueue Bulk Export Activities Job
+----------------
+API Ref: http://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Bulk_Export_Activities/enqueueExportActivitiesUsingPOST
+```python
+enqueued_job_details = mc.execute(method='enqueue_activities_export_job', job_id='284742ec-1e5a-46f2-b164-498a41fcaaf6')
+```
+
+Get Bulk Export Activities Job Status
+----------------
+API Ref: http://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Bulk_Export_Activities/getExportActivitiesStatusUsingGET
+```python
+export_job_status = mc.execute(method='get_activities_export_job_status', job_id='284742ec-1e5a-46f2-b164-498a41fcaaf6')
+```
+
+Get Bulk Export Activities File
+----------------
+API Ref: http://developers.marketo.com/rest-api/endpoint-reference/lead-database-endpoint-reference/#!/Bulk_Export_Activities/getExportActivitiesFileUsingGET
+```python
+export_file_contents = mc.execute(method='get_activities_export_job_file', job_id='284742ec-1e5a-46f2-b164-498a41fcaaf6')
+```
+Or use streaming: 
+```python
+with mc.execute(method='get_activities_export_job_file', job_id='284742ec-1e5a-46f2-b164-498a41fcaaf6', stream=True) as r:
+    with open('filename.csv', 'wb') as f:
+        for chunk in r.iter_content(chunk_size=1024):
+            if chunk:
+                f.write(chunk)
+# set your preferred chunk_size
+```
+
+Named Account Object
+==============
+
+Describe Named Accounts
+----------------
+```python
+mc.execute(method='describe_named_accounts')
+```
+
+Get Named Accounts
+-----------------
+```python
+for accounts in mc.execute(method='get_named_accounts', filterType='name', filterValues='Acme', 
+                        fields='name,score1,annualRevenue', batchSize=None, return_full_result=False, 
+                        nextPageToken=None):
+    print(accounts)
+
+# filterType may be any single field returned in the searchableFields member of the describe result for named accounts
+# specify up to 300 filterValues comma-separated or as a list; you are out of luck if your filterValues have commas
+# default and maximum batchSize is 300 (in the response) 
+# return_full_result=True will return requestId and nextPageToken
+# nextPageToken: optional; normally you wouldn't need it, unless you are resuming a prior export 
+```
+
+Get Named Account Lists
+-----------------
+```python
+for lists in mc.execute(method='get_named_account_lists', filterType='dedupeFields', filterValues='Accounts Tier 1',
+                        batchSize=None, return_full_result=False, nextPageToken=None):
+    print(lists)
+
+# instead of 'dedupeFields' you can also use 'idField', which would be the marketoGUID
+# specify up to 300 filterValues comma-separated or as a list; you are out of luck if your filterValues have commas
+# default and maximum batchSize is 300 (in the response)
+# return_full_result=True will return requestId and nextPageToken
+# nextPageToken: optional; normally you wouldn't need it, unless you are resuming a prior export 
+```
+
+Get Named Account List Members
+------------------
+```python
+for accounts in mc.execute(method='get_named_account_list_members', id='d5080d12-a40c-4b9f-ae01-453bdf662fdd', 
+                        fields='name,score1', batchSize=None, return_full_result=False, nextPageToken=None):
+    print(accounts)
+
+# default and maximum batchSize is 300 
+# return_full_result=True will return requestId and nextPageToken
+# nextPageToken: optional; normally you wouldn't need it, unless you are resuming a prior export 
+```
+
+Other Named Account Methods
+------
+There are stubs for other Named Account methods in `client.py` but those aren't implemented yet. 
+
+
 
 
 Programming Conventions
