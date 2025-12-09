@@ -20,9 +20,9 @@ def test_marketo_client(client):
     assert client.API_LIMIT is None
     assert client.requests_timeout is None
 
-    client = MarketoClient('123-FDY-456', 'randomclientid', 'supersecret', 20, requests_timeout=10)
+    client = MarketoClient('123-FDY-456', 'randomclientid', 'supersecret', 20, requests_timeout=1.0)
     assert client.API_LIMIT == 20
-    assert client.requests_timeout == 10
+    assert client.requests_timeout == 1.0
 
     client = MarketoClient('123-FDY-456', 'randomclientid', 'supersecret', requests_timeout=(1,2.0))
     assert client.requests_timeout == (1,2.0)
@@ -128,7 +128,7 @@ def test_endpoint_responses(m_client_api_call, m_client_authenticate, client):
     with pytest.raises(MarketoException) as excinfo:
         client.get_program_by_id(2600)
         assert excinfo == "Marketo API Error Code {}: {}".format(
-            1, 
+            1,
             "Something went wrong."
         )
 
